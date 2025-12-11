@@ -74,7 +74,7 @@
     <h2>친구들을 떠올리며 선택해주세요 (TOP2)</h2>
     <p style="font-size:13px; color:#4b5563;">
       1위는 2점, 2위는 1점으로 반영됩니다.<br>
-      이름은 가능한 한 동일한 방식으로 적어 주세요. (예: "이지훈" 또는 "지훈" 중 하나로 통일)
+      이름은 가능한 한 동일한 방식으로 적어 주세요. (예: 이지훈 / 지훈)
     </p>
 
     <div id="questions"></div>
@@ -90,9 +90,9 @@
       <b>총 제출 인원:</b> <span id="totalVotes">0</span> 명
     </p>
     <div style="margin-bottom:10px;">
-      <button class="btn secondary" onclick="showAdmin()">새로고침</button>
+      <button class="btn secondary" onclick="refreshData()">새로고침</button>
       <button class="btn danger" onclick="resetAll()">데이터 초기화</button>
-      <button class="btn" onclick="backToMode()">처음으로</button>
+      <button class="btn secondary" onclick="backToMode()">처음으로</button>
     </div>
 
     <div class="card" style="margin:-10px -20px 10px -20px; box-shadow:none;">
@@ -110,6 +110,28 @@
     <div id="resultBox">결과가 여기 표시됩니다.</div>
   </div>
 </div>
+
+<!-- 🔹 Firebase SDK (v8 글로벌 버전 사용) -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+<script>
+  // 🔹 네가 만든 Firebase 프로젝트 설정
+  const firebaseConfig = {
+    apiKey: "AIzaSyDXgMap5ujky9QFQBq454Y0EKQ1hExwC84",
+    authDomain: "lets-go-5eead.firebaseapp.com",
+    databaseURL: "https://lets-go-5eead-default-rtdb.firebaseio.com",
+    projectId: "lets-go-5eead",
+    storageBucket: "lets-go-5eead.firebasestorage.app",
+    messagingSenderId: "322694631942",
+    appId: "1:322694631942:web:c5382b618de2ed15f8e987",
+    measurementId: "G-6PCTNZMML1"
+  };
+
+  // Firebase 초기화
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+</script>
 
 <script>
   // ===========================
@@ -130,10 +152,12 @@
 
   const PASSWORD = "YCHS1315";
 
-  // localStorage 키 (버전 올려서 이전 데이터와 구분)
-  const KEY_DATA = "memoryBox_voteData_v2";
+  // 각 브라우저에 고유 ID를 하나씩 부여해서
+  // 같은 기기에서 여러 번 제출 못 하게 막기
+  const KEY_CLIENT = "memoryBox_clientId_v1";
   const KEY_SUBMITTED = "memoryBox_submitted_v2";
-  const KEY_COUNT = "memoryBox_voteCount_v2";
+
+  let cachedSubmissions = {}; // Firebase에서 읽어온 전체 제출 데이터 캐시
 
   // ===========================
   //  공통 UI 제어
@@ -148,6 +172,16 @@
   function backToMode() {
     hideAll();
     document.getElementById("modeSelect").classList.remove("hidden");
+  }
+
+  // 클라이언트 고유 ID 생성/획득
+  function getClientId() {
+    let id = localStorage.getItem(KEY_CLIENT);
+    if (!id) {
+      id = "client_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem(KEY_CLIENT, id);
+    }
+    return id;
   }
 
   // ===========================
@@ -180,27 +214,15 @@
     });
   }
 
-  // 이름 정규화 함수
-  function normalizeName(name, existingNames) {
+  // 이름 정규화: 공백 제거 + 호칭 제거 + 끝 두 글자(이름 부분)만 사용
+  function normalizeName(name) {
     if (!name) return "";
-
-    // 1) 앞뒤 공백 제거
     name = name.trim();
-
-    // 2) 모든 공백 제거
-    name = name.replace(/\s+/g, "");
-
-    // 3) 끝 호칭 제거 (이, 야, 님, 군, 양, 씨, 요)
-    name = name.replace(/(이|야|님|군|양|씨|요)$/g, "");
-
-    // 4) 기존 이름 목록과 포함 관계 비교
-    for (let saved of existingNames) {
-      if (!saved) continue;
-      if (saved.includes(name) || name.includes(saved)) {
-        return saved; // 기존 이름으로 통일
-      }
+    name = name.replace(/\s+/g, "");               // 공백 제거
+    name = name.replace(/(이|야|님|군|양|씨|요)$/g, ""); // 말끝 호칭 제거
+    if (name.length >= 2) {
+      name = name.slice(-2);  // 끝 두 글자만 사용 (예: 이지훈 → 지훈)
     }
-
     return name;
   }
 
@@ -210,60 +232,44 @@
       return;
     }
 
-    // 기존 데이터 로드
-    const rawData = localStorage.getItem(KEY_DATA);
-    let data = rawData ? JSON.parse(rawData) : {};
+    const clientId = getClientId();
+    const submission = {}; // 이번에 제출하는 한 사람의 데이터
 
-    // 기존에 저장된 모든 이름 목록 수집
-    const existingNameSet = new Set();
-    Object.values(data).forEach(qObj => {
-      Object.keys(qObj).forEach(n => existingNameSet.add(n));
-    });
-
-    // 제출한 내용 반영
     QUESTIONS.forEach((_, qi) => {
-      if (!data[qi]) data[qi] = {};
+      const rawFirst = document.getElementById(`q${qi}_1`).value;
+      const rawSecond = document.getElementById(`q${qi}_2`).value;
 
-      // 현재 질문에서 입력한 이름
-      let rawFirst = document.getElementById(`q${qi}_1`).value;
-      let rawSecond = document.getElementById(`q${qi}_2`).value;
+      let first = normalizeName(rawFirst);
+      let second = normalizeName(rawSecond);
 
-      // 정규화
-      let first = normalizeName(rawFirst, existingNameSet);
-      if (first) existingNameSet.add(first); // 새로 등장하면 목록에 추가
+      if (!submission[qi]) submission[qi] = {};
 
-      let second = normalizeName(rawSecond, existingNameSet);
-      if (second) existingNameSet.add(second);
-
-      // 같은 사람을 1위/2위로 중복 적으면 1위만 인정
+      // 같은 사람을 1위/2위로 쓰면 1위만 인정
       if (first && second && first === second) {
-        // 2위는 무시
         second = "";
       }
 
-      // 점수 반영
       if (first) {
-        if (!data[qi][first]) data[qi][first] = 0;
-        data[qi][first] += 2; // 1위 2점
+        if (!submission[qi][first]) submission[qi][first] = 0;
+        submission[qi][first] += 2;
       }
       if (second) {
-        if (!data[qi][second]) data[qi][second] = 0;
-        data[qi][second] += 1; // 2위 1점
+        if (!submission[qi][second]) submission[qi][second] = 0;
+        submission[qi][second] += 1;
       }
     });
 
-    // 저장
-    localStorage.setItem(KEY_DATA, JSON.stringify(data));
-
-    // 제출 인원 +1
-    let count = Number(localStorage.getItem(KEY_COUNT) || "0");
-    localStorage.setItem(KEY_COUNT, count + 1);
-
-    // 중복 제출 방지 플래그
-    localStorage.setItem(KEY_SUBMITTED, "yes");
-
-    alert("제출이 완료되었습니다! 감사합니다 :)");
-    backToMode();
+    // Firebase에 저장: submissions/{clientId} 아래에 한 사람 분량을 통째로 저장
+    db.ref("submissions/" + clientId).set(submission)
+      .then(() => {
+        localStorage.setItem(KEY_SUBMITTED, "yes");
+        alert("제출이 완료되었습니다! 감사합니다 :)");
+        backToMode();
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("제출 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+      });
   }
 
   // ===========================
@@ -286,14 +292,18 @@
   function showAdmin() {
     hideAll();
     document.getElementById("adminPanel").classList.remove("hidden");
-    updateTotalVotes();
     buildGraphSelector();
+    refreshData();
     document.getElementById("resultBox").innerText = "결과가 여기 표시됩니다.";
   }
 
-  function updateTotalVotes() {
-    const count = Number(localStorage.getItem(KEY_COUNT) || "0");
-    document.getElementById("totalVotes").innerText = count;
+  // Firebase에서 전체 제출 데이터 읽어오기
+  function refreshData() {
+    db.ref("submissions").once("value").then((snapshot) => {
+      cachedSubmissions = snapshot.val() || {};
+      const count = Object.keys(cachedSubmissions).length;
+      document.getElementById("totalVotes").innerText = count;
+    });
   }
 
   function buildGraphSelector() {
@@ -307,72 +317,87 @@
     });
   }
 
-  function loadData() {
-    const raw = localStorage.getItem(KEY_DATA);
-    return raw ? JSON.parse(raw) : {};
+  // 질문 하나에 대한 통계 계산
+  function computeQuestionStats(questionIndex) {
+    const stats = {};
+    Object.values(cachedSubmissions).forEach(sub => {
+      const qData = sub[questionIndex];
+      if (!qData) return;
+      Object.entries(qData).forEach(([name, score]) => {
+        const norm = normalizeName(name);
+        if (!stats[norm]) stats[norm] = 0;
+        stats[norm] += score;
+      });
+    });
+    return stats;
+  }
+
+  // 전체 합산 통계 계산
+  function computeTotalStats() {
+    const total = {};
+    Object.values(cachedSubmissions).forEach(sub => {
+      Object.values(sub).forEach(qData => {
+        Object.entries(qData).forEach(([name, score]) => {
+          const norm = normalizeName(name);
+          if (!total[norm]) total[norm] = 0;
+          total[norm] += score;
+        });
+      });
+    });
+    return total;
   }
 
   function showQuestionResult() {
     const idx = Number(document.getElementById("graphSelect").value);
-    const data = loadData();
-    const qData = data[idx];
-
+    const stats = computeQuestionStats(idx);
     const box = document.getElementById("resultBox");
 
-    if (!qData || Object.keys(qData).length === 0) {
+    if (!Object.keys(stats).length) {
       box.innerText = `📌 ${idx + 1}. ${QUESTIONS[idx]}\n\n아직 데이터가 없습니다.`;
       return;
     }
 
-    const entries = Object.entries(qData).sort((a, b) => b[1] - a[1]);
+    const entries = Object.entries(stats).sort((a, b) => b[1] - a[1]);
     let text = `📌 ${idx + 1}. ${QUESTIONS[idx]}\n\n`;
-
     entries.forEach(([name, score], i) => {
       text += `${i + 1}위. ${name} : ${score}점\n`;
     });
-
     box.innerText = text;
   }
 
   function showTotal() {
-    const data = loadData();
-    const total = {};
-
-    // 모든 질문의 점수 합산
-    Object.values(data).forEach(qObj => {
-      Object.entries(qObj).forEach(([name, score]) => {
-        if (!total[name]) total[name] = 0;
-        total[name] += score;
-      });
-    });
-
+    const total = computeTotalStats();
     const box = document.getElementById("resultBox");
 
-    if (Object.keys(total).length === 0) {
+    if (!Object.keys(total).length) {
       box.innerText = "📌 전체 합산 결과\n\n아직 데이터가 없습니다.";
       return;
     }
 
     const entries = Object.entries(total).sort((a, b) => b[1] - a[1]);
     let text = "📌 전체 합산 결과\n\n";
-
     entries.forEach(([name, score], i) => {
       text += `${i + 1}위. ${name} : ${score}점\n`;
     });
-
     box.innerText = text;
   }
 
   function resetAll() {
     if (!confirm("정말로 모든 데이터를 초기화할까요? (되돌릴 수 없습니다)")) return;
 
-    localStorage.removeItem(KEY_DATA);
-    localStorage.removeItem(KEY_SUBMITTED);
-    localStorage.removeItem(KEY_COUNT);
-
-    alert("데이터를 모두 초기화했습니다.");
-    showAdmin();
+    // Firebase 데이터 전체 삭제
+    db.ref("submissions").set(null).then(() => {
+      // 이 기기의 제출 기록도 초기화
+      localStorage.removeItem(KEY_CLIENT);
+      localStorage.removeItem(KEY_SUBMITTED);
+      cachedSubmissions = {};
+      document.getElementById("totalVotes").innerText = "0";
+      document.getElementById("resultBox").innerText = "결과가 여기 표시됩니다.";
+      alert("데이터를 모두 초기화했습니다.");
+    });
   }
 </script>
+
 </body>
 </html>
+
