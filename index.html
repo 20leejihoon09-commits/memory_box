@@ -9,6 +9,9 @@
     body { background:#f5f7fb; margin:0; padding:20px; }
     .container { max-width: 900px; margin:auto; }
 
+    h1 { text-align:center; margin-bottom: 10px; }
+    h2, h3 { margin-top: 0; }
+
     .btn {
       padding:10px 18px; border:none; border-radius:30px; cursor:pointer;
       font-weight:600; font-size:14px; color:white; background:#4b6bff;
@@ -19,7 +22,7 @@
 
     .card {
       background:white; padding:20px; border-radius:14px;
-      margin-bottom:20px; box-shadow:0 5px 16px rgba(0,0,0,0.1);
+      margin-bottom:20px; box-shadow:0 5px 16px rgba(0,0,0,0.08);
     }
 
     .hidden { display:none; }
@@ -29,46 +32,89 @@
       font-size:14px;
     }
 
-    table { width:100%; border-collapse:collapse; font-size:14px; margin-top:10px; }
-    th, td { padding:8px; border-bottom:1px solid #e5e7eb; }
-    th { background:#f3f4f6; font-weight:600; }
+    .question-box { margin-bottom:14px; }
+    .question-box label { font-weight:600; display:block; margin-bottom:6px; }
 
-    .bar-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-    .bar-label { width:110px; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .bar-outer { flex:1; background:#e2e6ff; height:18px; border-radius:10px; overflow:hidden; }
-    .bar-inner {
-      height:100%; background:#4b6bff; color:white; text-align:right; padding-right:6px;
-      font-size:11px; line-height:18px;
+    .rank-label { font-size:13px; margin-top:4px; margin-bottom:2px; display:block; }
+
+    #resultBox {
+      white-space:pre-wrap;
+      background:#0f172a;
+      color:#e5e7eb;
+      padding:12px;
+      border-radius:10px;
+      font-size:13px;
+      max-height:400px;
+      overflow-y:auto;
     }
   </style>
 </head>
 
 <body>
 <div class="container">
-  <h1 style="text-align:center;">추억의 상자</h1>
+  <h1>추억의 상자</h1>
 
-  <div style="text-align:center;">
+  <!-- 모드 선택 -->
+  <div id="modeSelect" class="card" style="text-align:center;">
+    <p>모드를 선택해주세요.</p>
     <button class="btn" onclick="showParticipant()">참여자 모드</button>
-    <button class="btn secondary" onclick="askPassword()">관리자 모드</button>
+    <button class="btn secondary" onclick="showAdminLogin()">관리자 모드</button>
   </div>
 
-  <!-- 참여자 -->
-  <div id="participant" class="card hidden"></div>
-
-  <!-- 관리자 비번 -->
-  <div id="passwordBox" class="card hidden">
+  <!-- 관리자 로그인 -->
+  <div id="adminLogin" class="card hidden">
     <h3>관리자 비밀번호 입력</h3>
-    <input id="pw" type="password" placeholder="비밀번호 입력">
-    <button class="btn" onclick="checkPassword()">확인</button>
+    <input type="password" id="adminPW" placeholder="비밀번호 입력">
+    <button class="btn" onclick="checkAdmin()">확인</button>
+    <button class="btn secondary" onclick="backToMode()">뒤로가기</button>
   </div>
 
-  <!-- 관리자 -->
-  <div id="admin" class="hidden"></div>
+  <!-- 참여자 화면 -->
+  <div id="participant" class="card hidden">
+    <h2>친구들을 떠올리며 선택해주세요 (TOP2)</h2>
+    <p style="font-size:13px; color:#4b5563;">
+      1위는 2점, 2위는 1점으로 반영됩니다.<br>
+      이름은 가능한 한 동일한 방식으로 적어 주세요. (예: "이지훈" 또는 "지훈" 중 하나로 통일)
+    </p>
+
+    <div id="questions"></div>
+
+    <button class="btn" onclick="submitVotes()">제출하기</button>
+    <button class="btn secondary" onclick="backToMode()">처음으로</button>
+  </div>
+
+  <!-- 관리자 패널 -->
+  <div id="adminPanel" class="card hidden">
+    <h2>관리자 패널</h2>
+    <p style="font-size:14px;">
+      <b>총 제출 인원:</b> <span id="totalVotes">0</span> 명
+    </p>
+    <div style="margin-bottom:10px;">
+      <button class="btn secondary" onclick="showAdmin()">새로고침</button>
+      <button class="btn danger" onclick="resetAll()">데이터 초기화</button>
+      <button class="btn" onclick="backToMode()">처음으로</button>
+    </div>
+
+    <div class="card" style="margin:-10px -20px 10px -20px; box-shadow:none;">
+      <h3>질문별 결과 보기</h3>
+      <select id="graphSelect" style="margin-bottom:8px;"></select>
+      <button class="btn secondary" onclick="showQuestionResult()">선택한 질문 결과 보기</button>
+    </div>
+
+    <div class="card" style="margin:-10px -20px 10px -20px; box-shadow:none;">
+      <h3>전체 합산 결과</h3>
+      <button class="btn secondary" onclick="showTotal()">전체 합산 점수 보기</button>
+    </div>
+
+    <h3>결과 출력</h3>
+    <div id="resultBox">결과가 여기 표시됩니다.</div>
+  </div>
 </div>
 
 <script>
-  const PASSWORD = "YCHS1315";
-
+  // ===========================
+  //  설정 & 상수
+  // ===========================
   const QUESTIONS = [
     "청소를 열심히 하던 친구",
     "도움이 필요할 때 기댈 수 있었던 친구",
@@ -77,215 +123,254 @@
     "힘들 때 웃을 수 있게 해주던 친구",
     "학교 행사에 열심히 참여하던 친구",
     "리더십, 카리스마가 넘치던 친구",
-    "봉사활동을 열심히 하던 친구"
+    "봉사활동을 열심히 하던 친구",
+    "사소한 일에도 약속을 잘 지키던 친구",
+    "바른언어, 바른 행동 등 품성이 아름답던 친구"
   ];
 
-  const SCORE = {1:3, 2:2, 3:1};
-  const KEY = "voteData_v5";
-  const SUBMIT_KEY = "voteSubmitted_v5";     
-  const SUBMIT_COUNT_KEY = "voteSubmitCount_v5";
+  const PASSWORD = "YCHS1315";
 
-  function load() {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) {
-      const base = {questions: QUESTIONS.map(()=>({}))};
-      localStorage.setItem(KEY, JSON.stringify(base));
-      return base;
-    }
-    return JSON.parse(raw);
-  }
+  // localStorage 키 (버전 올려서 이전 데이터와 구분)
+  const KEY_DATA = "memoryBox_voteData_v2";
+  const KEY_SUBMITTED = "memoryBox_submitted_v2";
+  const KEY_COUNT = "memoryBox_voteCount_v2";
 
-  function save(data) {
-    localStorage.setItem(KEY, JSON.stringify(data));
-  }
-
+  // ===========================
+  //  공통 UI 제어
+  // ===========================
   function hideAll() {
+    document.getElementById("modeSelect").classList.add("hidden");
+    document.getElementById("adminLogin").classList.add("hidden");
     document.getElementById("participant").classList.add("hidden");
-    document.getElementById("passwordBox").classList.add("hidden");
-    document.getElementById("admin").classList.add("hidden");
+    document.getElementById("adminPanel").classList.add("hidden");
   }
 
+  function backToMode() {
+    hideAll();
+    document.getElementById("modeSelect").classList.remove("hidden");
+  }
+
+  // ===========================
+  //  참여자 모드
+  // ===========================
   function showParticipant() {
-    hideAll();
-    const el = document.getElementById("participant");
-    el.classList.remove("hidden");
-
-    // 중복 제출 방지
-    if (localStorage.getItem(SUBMIT_KEY) === "true") {
-      el.innerHTML = `
-        <h2>참여자 투표</h2>
-        <p style="color:#444; font-size:17px; margin-top:15px;">
-          이미 투표에 참여했습니다 😊
-        </p>
-      `;
+    if (localStorage.getItem(KEY_SUBMITTED) === "yes") {
+      alert("이미 이 기기에서 투표를 제출했습니다!");
       return;
     }
-
-    el.innerHTML = "<h2>참여자 투표</h2>";
-
-    QUESTIONS.forEach((q, i)=>{
-      el.innerHTML += `
-        <div class="card">
-          <h3>${i+1}. ${q}</h3>
-          <label>1위</label><input id="q${i}_1">
-          <label>2위</label><input id="q${i}_2">
-          <label>3위</label><input id="q${i}_3">
-        </div>`;
-    });
-
-    el.innerHTML += `<button class="btn" onclick="submitVotes()">제출하기</button>`;
-  }
-
-  function submitVotes() {
-    if (!confirm("제출할까요? 이후에는 수정할 수 없습니다.")) return;
-
-    const data = load();
-
-    // 점수 누적
-    QUESTIONS.forEach((_, qi)=>{
-      const seen = new Set();
-      for (let r=1; r<=3; r++) {
-        const val = document.getElementById(`q${qi}_${r}`).value.trim();
-        if (!val) continue;
-        if (seen.has(val)) continue;
-        seen.add(val);
-
-        if (!data.questions[qi][val]) data.questions[qi][val] = 0;
-        data.questions[qi][val] += SCORE[r];
-      }
-    });
-
-    save(data);
-
-    // ⭐ 제출자 수 증가
-    let c = Number(localStorage.getItem(SUBMIT_COUNT_KEY) || "0");
-    localStorage.setItem(SUBMIT_COUNT_KEY, c + 1);
-
-    // ⭐ 중복 제출 방지
-    localStorage.setItem(SUBMIT_KEY, "true");
-
-    alert("제출 완료!");
-    showParticipant();
-  }
-
-  function askPassword() {
     hideAll();
-    document.getElementById("passwordBox").classList.remove("hidden");
+    document.getElementById("participant").classList.remove("hidden");
+    buildQuestionForm();
   }
 
-  function checkPassword() {
-    const pw = document.getElementById("pw").value;
-    if (pw === PASSWORD) showAdmin();
-    else alert("비밀번호가 틀렸습니다.");
-  }
+  function buildQuestionForm() {
+    const box = document.getElementById("questions");
+    box.innerHTML = "";
 
-  function showAdmin() {
-    hideAll();
-    const el = document.getElementById("admin");
-    el.classList.remove("hidden");
-
-    // 제출 인원 표시
-    let count = Number(localStorage.getItem(SUBMIT_COUNT_KEY) || "0");
-
-    el.innerHTML = `
-      <div class="card">
-        <h2>관리자 페이지</h2>
-        <p style="font-size:16px; margin-bottom:10px;">
-          총 제출 인원: <b>${count}</b> 명
-        </p>
-        <button class="btn secondary" onclick="showAdmin()">새로고침</button>
-        <button class="btn danger" onclick="resetAll()">초기화</button>
-      </div>
-    `;
-
-    const data = load();
-
-    // 그래프 선택 + 전체 보기
-    el.innerHTML += `
-      <div class="card">
-        <h3>그래프 보기</h3>
-        <select id="graphSelect">
-          <option value="-1">0. 전체 (총점)</option>
-          ${QUESTIONS.map((q,i)=>`<option value="${i}">${i+1}. ${q}</option>`).join("")}
-        </select>
-        <button class="btn secondary" onclick="drawGraph()">그래프 표시</button>
-        <div id="graphArea" style="margin-top:10px;"></div>
-      </div>
-    `;
-
-    // 표 출력
-    QUESTIONS.forEach((q, qi)=>{
-      const entries = Object.entries(data.questions[qi]).sort((a,b)=>b[1]-a[1]);
-      let html = `<div class="card"><h3>${qi+1}. ${q}</h3>`;
-
-      if (entries.length === 0) {
-        html += "<p>아직 데이터 없음</p></div>";
-        el.innerHTML += html;
-        return;
-      }
-
-      html += `
-        <table>
-          <tr><th>순위</th><th>이름</th><th>점수</th></tr>
-      `;
-      
-      entries.forEach(([name,score],idx)=>{
-        html += `<tr><td>${idx+1}</td><td>${name}</td><td>${score}</td></tr>`;
-      });
-
-      html += "</table></div>";
-      el.innerHTML += html;
-    });
-  }
-
-  function drawGraph() {
-    const data = load();
-    const qIndex = Number(document.getElementById("graphSelect").value);
-    const area = document.getElementById("graphArea");
-    area.innerHTML = "";
-
-    let entries = [];
-
-    if (qIndex === -1) {
-      // 전체 총점
-      let total = {};
-      data.questions.forEach(qObj=>{
-        Object.entries(qObj).forEach(([name,score])=>{
-          if (!total[name]) total[name] = 0;
-          total[name] += score;
-        });
-      });
-      entries = Object.entries(total).sort((a,b)=>b[1]-a[1]);
-    } else {
-      entries = Object.entries(data.questions[qIndex]).sort((a,b)=>b[1]-a[1]);
-    }
-
-    if (entries.length === 0) {
-      area.innerHTML = "<p>데이터 없음</p>";
-      return;
-    }
-
-    const max = entries[0][1];
-
-    entries.forEach(([name,score])=>{
-      area.innerHTML += `
-        <div class="bar-row">
-          <div class="bar-label">${name}</div>
-          <div class="bar-outer">
-            <div class="bar-inner" style="width:${(score/max)*100}%">${score}</div>
-          </div>
+    QUESTIONS.forEach((q, i) => {
+      box.innerHTML += `
+        <div class="question-box">
+          <label>${i + 1}. ${q}</label>
+          <span class="rank-label">1위 (2점)</span>
+          <input id="q${i}_1" placeholder="예: 이지훈 / 지훈">
+          <span class="rank-label">2위 (1점)</span>
+          <input id="q${i}_2" placeholder="예: 이지훈 / 지훈">
         </div>
       `;
     });
   }
 
+  // 이름 정규화 함수
+  function normalizeName(name, existingNames) {
+    if (!name) return "";
+
+    // 1) 앞뒤 공백 제거
+    name = name.trim();
+
+    // 2) 모든 공백 제거
+    name = name.replace(/\s+/g, "");
+
+    // 3) 끝 호칭 제거 (이, 야, 님, 군, 양, 씨, 요)
+    name = name.replace(/(이|야|님|군|양|씨|요)$/g, "");
+
+    // 4) 기존 이름 목록과 포함 관계 비교
+    for (let saved of existingNames) {
+      if (!saved) continue;
+      if (saved.includes(name) || name.includes(saved)) {
+        return saved; // 기존 이름으로 통일
+      }
+    }
+
+    return name;
+  }
+
+  function submitVotes() {
+    if (localStorage.getItem(KEY_SUBMITTED) === "yes") {
+      alert("이미 이 기기에서 투표를 제출했습니다!");
+      return;
+    }
+
+    // 기존 데이터 로드
+    const rawData = localStorage.getItem(KEY_DATA);
+    let data = rawData ? JSON.parse(rawData) : {};
+
+    // 기존에 저장된 모든 이름 목록 수집
+    const existingNameSet = new Set();
+    Object.values(data).forEach(qObj => {
+      Object.keys(qObj).forEach(n => existingNameSet.add(n));
+    });
+
+    // 제출한 내용 반영
+    QUESTIONS.forEach((_, qi) => {
+      if (!data[qi]) data[qi] = {};
+
+      // 현재 질문에서 입력한 이름
+      let rawFirst = document.getElementById(`q${qi}_1`).value;
+      let rawSecond = document.getElementById(`q${qi}_2`).value;
+
+      // 정규화
+      let first = normalizeName(rawFirst, existingNameSet);
+      if (first) existingNameSet.add(first); // 새로 등장하면 목록에 추가
+
+      let second = normalizeName(rawSecond, existingNameSet);
+      if (second) existingNameSet.add(second);
+
+      // 같은 사람을 1위/2위로 중복 적으면 1위만 인정
+      if (first && second && first === second) {
+        // 2위는 무시
+        second = "";
+      }
+
+      // 점수 반영
+      if (first) {
+        if (!data[qi][first]) data[qi][first] = 0;
+        data[qi][first] += 2; // 1위 2점
+      }
+      if (second) {
+        if (!data[qi][second]) data[qi][second] = 0;
+        data[qi][second] += 1; // 2위 1점
+      }
+    });
+
+    // 저장
+    localStorage.setItem(KEY_DATA, JSON.stringify(data));
+
+    // 제출 인원 +1
+    let count = Number(localStorage.getItem(KEY_COUNT) || "0");
+    localStorage.setItem(KEY_COUNT, count + 1);
+
+    // 중복 제출 방지 플래그
+    localStorage.setItem(KEY_SUBMITTED, "yes");
+
+    alert("제출이 완료되었습니다! 감사합니다 :)");
+    backToMode();
+  }
+
+  // ===========================
+  //  관리자 모드
+  // ===========================
+  function showAdminLogin() {
+    hideAll();
+    document.getElementById("adminLogin").classList.remove("hidden");
+  }
+
+  function checkAdmin() {
+    const pw = document.getElementById("adminPW").value;
+    if (pw === PASSWORD) {
+      showAdmin();
+    } else {
+      alert("비밀번호가 틀렸습니다.");
+    }
+  }
+
+  function showAdmin() {
+    hideAll();
+    document.getElementById("adminPanel").classList.remove("hidden");
+    updateTotalVotes();
+    buildGraphSelector();
+    document.getElementById("resultBox").innerText = "결과가 여기 표시됩니다.";
+  }
+
+  function updateTotalVotes() {
+    const count = Number(localStorage.getItem(KEY_COUNT) || "0");
+    document.getElementById("totalVotes").innerText = count;
+  }
+
+  function buildGraphSelector() {
+    const sel = document.getElementById("graphSelect");
+    sel.innerHTML = "";
+    QUESTIONS.forEach((q, i) => {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = `${i + 1}. ${q}`;
+      sel.appendChild(opt);
+    });
+  }
+
+  function loadData() {
+    const raw = localStorage.getItem(KEY_DATA);
+    return raw ? JSON.parse(raw) : {};
+  }
+
+  function showQuestionResult() {
+    const idx = Number(document.getElementById("graphSelect").value);
+    const data = loadData();
+    const qData = data[idx];
+
+    const box = document.getElementById("resultBox");
+
+    if (!qData || Object.keys(qData).length === 0) {
+      box.innerText = `📌 ${idx + 1}. ${QUESTIONS[idx]}\n\n아직 데이터가 없습니다.`;
+      return;
+    }
+
+    const entries = Object.entries(qData).sort((a, b) => b[1] - a[1]);
+    let text = `📌 ${idx + 1}. ${QUESTIONS[idx]}\n\n`;
+
+    entries.forEach(([name, score], i) => {
+      text += `${i + 1}위. ${name} : ${score}점\n`;
+    });
+
+    box.innerText = text;
+  }
+
+  function showTotal() {
+    const data = loadData();
+    const total = {};
+
+    // 모든 질문의 점수 합산
+    Object.values(data).forEach(qObj => {
+      Object.entries(qObj).forEach(([name, score]) => {
+        if (!total[name]) total[name] = 0;
+        total[name] += score;
+      });
+    });
+
+    const box = document.getElementById("resultBox");
+
+    if (Object.keys(total).length === 0) {
+      box.innerText = "📌 전체 합산 결과\n\n아직 데이터가 없습니다.";
+      return;
+    }
+
+    const entries = Object.entries(total).sort((a, b) => b[1] - a[1]);
+    let text = "📌 전체 합산 결과\n\n";
+
+    entries.forEach(([name, score], i) => {
+      text += `${i + 1}위. ${name} : ${score}점\n`;
+    });
+
+    box.innerText = text;
+  }
+
   function resetAll() {
-    if (!confirm("전체 초기화할까요?")) return;
+    if (!confirm("정말로 모든 데이터를 초기화할까요? (되돌릴 수 없습니다)")) return;
 
-    localStorage.removeItem(KEY);
-    localStorage.removeItem(SUBMIT_KEY);
-    localStorage.removeItem(SUBMIT_COUNT_KEY);
+    localStorage.removeItem(KEY_DATA);
+    localStorage.removeItem(KEY_SUBMITTED);
+    localStorage.removeItem(KEY_COUNT);
 
+    alert("데이터를 모두 초기화했습니다.");
     showAdmin();
   }
 </script>
